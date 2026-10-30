@@ -212,17 +212,23 @@ const server = http.createServer(async (req, res) => {
       return await handleApi(req, res, pathname);
     }
 
-    if (pathname === '/') pathname = '/index.html';
-const safe = path.normalize(pathname).replace(/^(\.\.[/\\])+/, '').replace(/^\//, '');
-const filePath = path.join(PUBLIC, safe);
-    if (!filePath.startsWith(PUBLIC)) {
-      res.writeHead(403);
-      return res.end('Forbidden');
-    }
+    // صفحه اصلی و فایل‌های静态
+    let fileName = pathname === '/' ? 'index.html' : pathname.replace(/^\//, '');
+    fileName = path.normalize(fileName).replace(/^(\.\.[/\\])+/, '');
+    let filePath = path.join(PUBLIC, fileName);
+
     if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
       return sendFile(res, filePath);
     }
-    return sendFile(res, path.join(PUBLIC, 'index.html'));
+
+    // اگر پیدا نشد، همیشه index.html
+    const indexPath = path.join(PUBLIC, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      return sendFile(res, indexPath);
+    }
+
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('index.html not found on server. PUBLIC=' + PUBLIC);
   } catch (e) {
     console.error(e);
     sendJson(res, 500, { ok: false, error: String(e.message || e) });
@@ -245,10 +251,9 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('========================================');
   console.log('  سامانه پرمیت رامک — سرور آماده است');
   console.log('========================================');
-  console.log('  محلی:   http://127.0.0.1:' + PORT);
-  localIPs().forEach((ip) => console.log('  شبکه:   http://' + ip + ':' + PORT));
-  console.log('  داده:    ' + path.join(__dirname, 'data', 'store.json'));
-  console.log('  کاربر:   admin / 123');
+  console.log('  PORT:', PORT);
+  console.log('  PUBLIC:', PUBLIC);
+  console.log('  index?:', fs.existsSync(path.join(PUBLIC, 'index.html')));
   console.log('========================================');
   console.log('');
 });
