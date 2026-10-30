@@ -1,0 +1,13 @@
+{
+  "name": "ramak-permit-server",
+  "version": "2.1.0",
+  "description": "سامانه پرمیت رامک - سرور شبکه داخلی + ابری + بازوی بله",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "bot": "node bot.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
