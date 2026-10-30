@@ -1,7 +1,6 @@
 /**
  * سرور سامانه پرمیت رامک (بدون وابستگی خارجی — فقط Node.js)
  * اجرا: node server.js
- * دسترسی شبکه: http://IP:3780
  */
 const http = require('http');
 const fs = require('fs');
@@ -58,7 +57,7 @@ function sendFile(res, filePath) {
   fs.readFile(filePath, (err, data) => {
     if (err) {
       res.writeHead(404);
-      res.end('Not found');
+      res.end('Not found: ' + filePath);
       return;
     }
     res.writeHead(200, { 'Content-Type': type, 'Access-Control-Allow-Origin': '*' });
@@ -77,7 +76,13 @@ async function handleApi(req, res, pathname) {
   }
 
   if (pathname === '/api/health') {
-    return sendJson(res, 200, { ok: true, time: new Date().toISOString(), version: '2.1.0' });
+    return sendJson(res, 200, {
+      ok: true,
+      time: new Date().toISOString(),
+      version: '2.1.0',
+      public: PUBLIC,
+      hasIndex: fs.existsSync(path.join(PUBLIC, 'index.html'))
+    });
   }
 
   if (pathname === '/api/data' && req.method === 'GET') {
@@ -212,48 +217,29 @@ const server = http.createServer(async (req, res) => {
       return await handleApi(req, res, pathname);
     }
 
-    // صفحه اصلی و فایل‌های静态
     let fileName = pathname === '/' ? 'index.html' : pathname.replace(/^\//, '');
     fileName = path.normalize(fileName).replace(/^(\.\.[/\\])+/, '');
-    let filePath = path.join(PUBLIC, fileName);
+    const filePath = path.join(PUBLIC, fileName);
 
     if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
       return sendFile(res, filePath);
     }
 
-    // اگر پیدا نشد، همیشه index.html
     const indexPath = path.join(PUBLIC, 'index.html');
     if (fs.existsSync(indexPath)) {
       return sendFile(res, indexPath);
     }
 
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('index.html not found on server. PUBLIC=' + PUBLIC);
+    res.end('index.html not found. PUBLIC=' + PUBLIC);
   } catch (e) {
     console.error(e);
     sendJson(res, 500, { ok: false, error: String(e.message || e) });
   }
 });
 
-function localIPs() {
-  const nets = os.networkInterfaces();
-  const list = [];
-  Object.keys(nets).forEach((name) => {
-    (nets[name] || []).forEach((n) => {
-      if (n.family === 'IPv4' && !n.internal) list.push(n.address);
-    });
-  });
-  return list;
-}
-
 server.listen(PORT, '0.0.0.0', () => {
-  console.log('');
-  console.log('========================================');
-  console.log('  سامانه پرمیت رامک — سرور آماده است');
-  console.log('========================================');
-  console.log('  PORT:', PORT);
-  console.log('  PUBLIC:', PUBLIC);
-  console.log('  index?:', fs.existsSync(path.join(PUBLIC, 'index.html')));
-  console.log('========================================');
-  console.log('');
+  console.log('Ramak server on port', PORT);
+  console.log('PUBLIC=', PUBLIC);
+  console.log('index?= ', fs.existsSync(path.join(PUBLIC, 'index.html')));
 });
