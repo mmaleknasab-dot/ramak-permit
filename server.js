@@ -213,8 +213,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === '/') pathname = '/index.html';
-    const safe = path.normalize(pathname).replace(/^(\.\.[/\\])+/, '');
-    const filePath = path.join(PUBLIC, safe);
+const safe = path.normalize(pathname).replace(/^(\.\.[/\\])+/, '').replace(/^\//, '');
+const filePath = path.join(PUBLIC, safe);
     if (!filePath.startsWith(PUBLIC)) {
       res.writeHead(403);
       return res.end('Forbidden');
