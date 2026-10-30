@@ -11,7 +11,9 @@ const { URL } = require('url');
 const db = require('./db');
 
 const PORT = process.env.PORT || 3780;
-const PUBLIC = path.join(__dirname, 'public');
+const PUBLIC = fs.existsSync(path.join(__dirname, 'public', 'index.html'))
+  ? path.join(__dirname, 'public')
+  : __dirname;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
