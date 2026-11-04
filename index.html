@@ -1057,9 +1057,14 @@ function renderContracts() {
         <div class="card">
             <div class="flex justify-between items-center" style="margin-bottom:16px;">
                 <h2 style="font-size:16px;">📊 ثبت پروژه و قراردادها</h2>
-                <div class="flex gap-2">
+                <div class="flex gap-2" style="flex-wrap:wrap;">
                     <button class="btn btn-primary" onclick="openContractModal()">➕ ثبت قرارداد جدید</button>
-                    <button class="btn btn-secondary btn-sm" onclick="alert('قابلیت ایمپورت اکسل در نسخه بعدی فعال می‌شود')">📥 ایمپورت اکسل</button>
+                    <button class="btn btn-secondary btn-sm" onclick="downloadContractTemplate()">📄 نمونه اکسل/CSV</button>
+                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('contract-excel-input').click()">📥 ایمپورت اکسل/CSV</button>
+                    <button class="btn btn-secondary btn-sm" onclick="exportFullBackup()">💾 پشتیبان‌گیری</button>
+                    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('backup-restore-input').click()">♻️ بازیابی پشتیبان</button>
+                    <input type="file" id="contract-excel-input" accept=".csv,.xlsx,.xls" style="display:none" onchange="importContractsFromFile(event)">
+                    <input type="file" id="backup-restore-input" accept=".json" style="display:none" onchange="importFullBackup(event)">
                 </div>
             </div>
             <div class="search-bar">
@@ -1229,6 +1234,187 @@ function toggleContractActive(id, val) {
     let list = getData('contracts');
     const c = list.find(x => x.id === id);
     if (c) { c.isActive = val; setData('contracts', list); }
+}
+
+
+// ---------- ایمپورت قرارداد از CSV/Excel + پشتیبان ----------
+function downloadContractTemplate() {
+    const header = 'pName,cName,contractor,contractorMobile,contractorPassword,nazor,site,location,isProductionLine,startDate,endDate';
+    const sample = 'پروژه نمونه,قرارداد نمونه,شرکت نمونه,09121234567,1234,ناظر نمونه,سالن شیر,محل کار,خیر,1405/08/01,1405/09/01';
+    const bom = '\uFEFF';
+    const blob = new Blob([bom + header + '\n' + sample + '\n'], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'ramak_contracts_template.csv';
+    a.click();
+}
+
+function parseCsv(text) {
+    const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) return [];
+    const split = (line) => {
+        const out = []; let cur = ''; let q = false;
+        for (let i = 0; i < line.length; i++) {
+            const ch = line[i];
+            if (ch === '"') { q = !q; continue; }
+            if (ch === ',' && !q) { out.push(cur.trim()); cur = ''; continue; }
+            cur += ch;
+        }
+        out.push(cur.trim());
+        return out;
+    };
+    const headers = split(lines[0]).map(h => h.trim());
+    const rows = [];
+    for (let i = 1; i < lines.length; i++) {
+        const cols = split(lines[i]);
+        if (!cols.join('').trim()) continue;
+        const obj = {};
+        headers.forEach((h, idx) => { obj[h] = cols[idx] != null ? cols[idx] : ''; });
+        rows.push(obj);
+    }
+    return rows;
+}
+
+function normalizeImportedContract(row) {
+    const boolish = (v) => {
+        const s = String(v || '').trim().toLowerCase();
+        return s === '1' || s === 'true' || s === 'yes' || s === 'بله' || s === 'y';
+    };
+    let mobile = String(row.contractorMobile || row.mobile || '').replace(/[^\d]/g, '');
+    if (mobile.startsWith('98') && mobile.length === 12) mobile = '0' + mobile.slice(2);
+    if (mobile.startsWith('9') && mobile.length === 10) mobile = '0' + mobile;
+    return {
+        id: uid(),
+        pName: (row.pName || row.project || '').trim(),
+        cName: (row.cName || row.contract || '').trim(),
+        contractor: (row.contractor || '').trim(),
+        contractorMobile: mobile,
+        contractorPassword: (row.contractorPassword || row.password || '1234').trim() || '1234',
+        nazor: (row.nazor || '').trim(),
+        site: (row.site || '').trim(),
+        location: (row.location || '').trim(),
+        isProductionLine: boolish(row.isProductionLine),
+        startDate: (row.startDate || '').trim(),
+        endDate: (row.endDate || '').trim(),
+        isActive: true,
+        createdAt: todayFa()
+    };
+}
+
+function importContractsFromFile(ev) {
+    const file = ev.target.files && ev.target.files[0];
+    ev.target.value = '';
+    if (!file) return;
+    const name = (file.name || '').toLowerCase();
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            let rows = [];
+            if (name.endsWith('.csv') || name.endsWith('.txt')) {
+                rows = parseCsv(String(e.target.result || ''));
+                finishContractImport(rows);
+            } else if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+                const loadXlsx = function(cb) {
+                    if (window.XLSX) return cb();
+                    const s = document.createElement('script');
+                    s.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+                    s.onload = cb;
+                    s.onerror = function() { alert('بارگذاری کتابخانه اکسل ناموفق بود. فایل CSV استفاده کنید.'); };
+                    document.head.appendChild(s);
+                };
+                loadXlsx(function() {
+                    const data = new Uint8Array(e.target.result);
+                    const wb = XLSX.read(data, { type: 'array' });
+                    const sheet = wb.Sheets[wb.SheetNames[0]];
+                    rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+                    finishContractImport(rows);
+                });
+            } else {
+                alert('فرمت پشتیبانی نمی‌شود. CSV یا Excel بفرستید.');
+            }
+        } catch (err) {
+            alert('خطا در خواندن فایل: ' + err.message);
+        }
+    };
+    if (name.endsWith('.xlsx') || name.endsWith('.xls')) reader.readAsArrayBuffer(file);
+    else reader.readAsText(file, 'UTF-8');
+}
+
+function finishContractImport(rows) {
+    if (!rows.length) return alert('ردیفی برای ورود یافت نشد.');
+    const list = getData('contracts') || [];
+    let added = 0, skipped = 0;
+    rows.forEach(function(r) {
+        const c = normalizeImportedContract(r);
+        if (!c.pName || !c.cName || !c.contractor) { skipped++; return; }
+        list.push(c);
+        added++;
+    });
+    setData('contracts', list);
+    renderContracts();
+    alert('ایمپورت انجام شد.\\nثبت‌شده: ' + added + '\\nردشده: ' + skipped);
+}
+
+function exportFullBackup() {
+    const payload = {
+        exportedAt: new Date().toISOString(),
+        version: 'ramak-v2',
+        data: {}
+    };
+    const keys = ['users','contracts','permits','personnel','food_menu','food_history','food_daily','hse_reports','contractor_reports','permit_counter','cfg_org_units','cfg_roles','manual_date'];
+    keys.forEach(function(k) {
+        payload.data[k] = getData(k, k === 'permit_counter' ? 0 : (k.indexOf('cfg') === 0 ? null : []));
+    });
+    // sync from server snapshot if available
+    fetch(API_BASE + '/api/data').then(function(r){ return r.json(); }).then(function(server){
+        if (server && typeof server === 'object') {
+            Object.keys(server).forEach(function(k){ payload.data[k] = server[k]; });
+        }
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'ramak-backup-' + new Date().toISOString().slice(0,10) + '.json';
+        a.click();
+    }).catch(function(){
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'ramak-backup-' + new Date().toISOString().slice(0,10) + '.json';
+        a.click();
+    });
+}
+
+function importFullBackup(ev) {
+    const file = ev.target.files && ev.target.files[0];
+    ev.target.value = '';
+    if (!file) return;
+    if (!confirm('بازیابی پشتیبان، داده‌های فعلی سرور/مرورگر را جایگزین می‌کند. ادامه؟')) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const payload = JSON.parse(e.target.result);
+            const data = payload.data || payload;
+            if (!data || typeof data !== 'object') throw new Error('فرمت پشتیبان نامعتبر است');
+            Object.keys(data).forEach(function(k) {
+                setData(k, data[k]);
+            });
+            fetch(API_BASE + '/api/data/bulk', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            }).then(function(r){ return r.json(); }).then(function(){
+                alert('بازیابی انجام شد.');
+                if (typeof renderContracts === 'function') renderContracts();
+                location.reload();
+            }).catch(function(){
+                alert('داده در مرورگر بازیابی شد. همگام‌سازی سرور ممکن است کامل نباشد.');
+                location.reload();
+            });
+        } catch (err) {
+            alert('خطا در بازیابی: ' + err.message);
+        }
+    };
+    reader.readAsText(file, 'UTF-8');
 }
 
 // ============================================================
